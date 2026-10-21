@@ -192,6 +192,22 @@
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
         </Style>
 
+        <Style TargetType="GridSplitter">
+            <Setter Property="Background" Value="#3A3C4A" />
+            <Setter Property="Cursor" Value="SizeNS" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridSplitter">
+                        <Border Background="Transparent">
+                            <Border Width="48" Height="3" CornerRadius="1.5"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Background="{StaticResource ControlBorderBrush}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="#1B1C22" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

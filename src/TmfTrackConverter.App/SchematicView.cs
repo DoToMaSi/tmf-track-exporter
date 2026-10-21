@@ -7,7 +7,7 @@ using TmfTrackConverter.Core;
 
 namespace TmfTrackConverter.App;
 
-public sealed class SchematicView : FrameworkElement
+public sealed class SchematicView : Grid
 {
     public static readonly DependencyProperty SceneProperty = DependencyProperty.Register(
         nameof(Scene),
@@ -15,6 +15,8 @@ public sealed class SchematicView : FrameworkElement
         typeof(SchematicView),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnSceneChanged));
 
+    private readonly Border _tipHost;
+    private readonly TextBlock _tipText;
     private int? _hoverX;
     private int? _hoverZ;
 
@@ -26,16 +28,40 @@ public sealed class SchematicView : FrameworkElement
 
     public SchematicView()
     {
-        ToolTipService.SetInitialShowDelay(this, 80);
-        ToolTipService.SetShowDuration(this, 60000);
-        ToolTipService.SetBetweenShowDelay(this, 80);
+        Background = new SolidColorBrush(Color.FromRgb(22, 23, 28));
+        ClipToBounds = true;
+        Focusable = true;
+        SnapsToDevicePixels = true;
+
+        _tipText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(244, 241, 234)),
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 12,
+            TextWrapping = TextWrapping.NoWrap
+        };
+        _tipHost = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(27, 28, 34)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(85, 87, 106)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 6, 8, 6),
+            CornerRadius = new CornerRadius(3),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false,
+            Child = _tipText
+        };
+        Children.Add(_tipHost);
+
         MouseMove += OnMouseMove;
         MouseLeave += OnMouseLeave;
     }
 
     protected override void OnRender(DrawingContext dc)
     {
-        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(22, 23, 28)), null, new Rect(RenderSize));
+        dc.DrawRectangle(Background, null, new Rect(RenderSize));
         if (!TryGetLayout(out var size, out var pad, out var scale, out var originX, out var originY))
         {
             return;
@@ -88,7 +114,8 @@ public sealed class SchematicView : FrameworkElement
 
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
-        if (!TryMapCell(e.GetPosition(this), out var cellX, out var cellZ))
+        var pos = e.GetPosition(this);
+        if (!TryMapCell(pos, out var cellX, out var cellZ))
         {
             ClearHover();
             return;
@@ -104,21 +131,28 @@ public sealed class SchematicView : FrameworkElement
         var lines = CollectCellLines(cellX, cellZ);
         if (lines.Count == 0)
         {
-            ToolTip = null;
+            _tipHost.Visibility = Visibility.Collapsed;
             return;
         }
 
-        ToolTip = new ToolTip
+        _tipText.Text = string.Join(Environment.NewLine, lines);
+        _tipHost.Visibility = Visibility.Visible;
+        _tipHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var tipW = _tipHost.DesiredSize.Width;
+        var tipH = _tipHost.DesiredSize.Height;
+        var left = pos.X + 14;
+        var top = pos.Y + 16;
+        if (left + tipW > ActualWidth - 8)
         {
-            Content = string.Join(Environment.NewLine, lines),
-            Background = new SolidColorBrush(Color.FromRgb(27, 28, 34)),
-            Foreground = new SolidColorBrush(Color.FromRgb(244, 241, 234)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(85, 87, 106)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8, 6, 8, 6),
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 12
-        };
+            left = Math.Max(8, pos.X - tipW - 10);
+        }
+
+        if (top + tipH > ActualHeight - 8)
+        {
+            top = Math.Max(8, pos.Y - tipH - 10);
+        }
+
+        _tipHost.Margin = new Thickness(left, top, 0, 0);
     }
 
     private void OnMouseLeave(object sender, MouseEventArgs e)
@@ -128,14 +162,14 @@ public sealed class SchematicView : FrameworkElement
 
     private void ClearHover()
     {
-        if (_hoverX is null && _hoverZ is null && ToolTip is null)
+        if (_hoverX is null && _hoverZ is null && _tipHost.Visibility == Visibility.Collapsed)
         {
             return;
         }
 
         _hoverX = null;
         _hoverZ = null;
-        ToolTip = null;
+        _tipHost.Visibility = Visibility.Collapsed;
         InvalidateVisual();
     }
 

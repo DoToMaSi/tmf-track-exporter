@@ -37,9 +37,9 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="160" />
+                <RowDefinition Height="*" MinHeight="160" />
+                <RowDefinition Height="8" />
+                <RowDefinition Height="160" MinHeight="72" />
             </Grid.RowDefinitions>
 
             <Border Grid.Column="0" Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="14" CornerRadius="6">
@@ -66,9 +66,19 @@
                                Text="Open a track to see a top-down schematic."
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
+                               IsHitTestVisible="False"
                                Foreground="{StaticResource MutedBrush}" />
                 </Grid>
             </Border>
+
+            <GridSplitter Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
+                          Height="8"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          Cursor="SizeNS" />
 
             <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="6">
                 <DockPanel>

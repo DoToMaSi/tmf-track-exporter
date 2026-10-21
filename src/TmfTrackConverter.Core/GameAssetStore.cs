@@ -1,14 +1,32 @@
 using GBX.NET;
 using GBX.NET.Components;
+using GBX.NET.Engines.GameData;
 using GBX.NET.Engines.MwFoundations;
 
 namespace TmfTrackConverter.Core;
 
 public sealed class GameAssetStore
 {
+    private static readonly string[] BlockInfoSuffixes =
+    [
+        ".TMEDClassic.Gbx", ".EDClassic.Gbx",
+        ".TMEDRoad.Gbx", ".EDRoad.Gbx",
+        ".TMEDClip.Gbx", ".EDClip.Gbx",
+        ".TMEDFlat.Gbx", ".EDFlat.Gbx",
+        ".TMZoneFlat.Gbx", ".ZoneFlat.Gbx",
+        ".TMEDFrontier.Gbx", ".EDFrontier.Gbx",
+        ".TMZoneFrontier.Gbx", ".ZoneFrontier.Gbx",
+        ".TMEDPylon.Gbx", ".EDPylon.Gbx",
+        ".TMEDRectAsym.Gbx", ".EDRectAsym.Gbx",
+        ".TMEDSlope.Gbx", ".EDSlope.Gbx",
+        ".EDTransition.Gbx", ".EDHorizontalClip.Gbx", ".EDVerticalClip.Gbx"
+    ];
+
     private readonly List<string> _roots = [];
     private readonly Dictionary<string, List<string>> _byFileName = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _byRelative = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string>? _blockInfoByIdent;
+    private Dictionary<string, string>? _flatInfoByIdent;
 
     public IReadOnlyList<string> Roots => _roots;
 
@@ -133,22 +151,9 @@ public sealed class GameAssetStore
 
     public string? FindBlockInfo(string blockName)
     {
-        string[] suffixes =
-        [
-            ".TMEDClassic.Gbx", ".EDClassic.Gbx",
-            ".TMEDRoad.Gbx", ".EDRoad.Gbx",
-            ".TMEDClip.Gbx", ".EDClip.Gbx",
-            ".TMEDFlat.Gbx", ".EDFlat.Gbx",
-            ".TMZoneFlat.Gbx", ".ZoneFlat.Gbx",
-            ".TMEDFrontier.Gbx", ".EDFrontier.Gbx",
-            ".TMEDPylon.Gbx", ".EDPylon.Gbx",
-            ".TMEDRectAsym.Gbx", ".EDRectAsym.Gbx",
-            ".EDTransition.Gbx", ".EDHorizontalClip.Gbx", ".EDVerticalClip.Gbx"
-        ];
-
         foreach (var candidate in BlockNameCandidates(blockName))
         {
-            foreach (var suffix in suffixes)
+            foreach (var suffix in BlockInfoSuffixes)
             {
                 var found = Find(candidate + suffix);
                 if (found is not null)
@@ -158,19 +163,16 @@ public sealed class GameAssetStore
             }
         }
 
+        EnsureBlockInfoIndex();
         foreach (var candidate in BlockNameCandidates(blockName))
         {
-            foreach (var (name, files) in _byFileName)
+            if (_blockInfoByIdent!.TryGetValue(candidate, out var byIdent))
             {
-                var stem = GbxPath.GetFileNameWithoutExtension(name);
-                if (string.Equals(stem, candidate, StringComparison.OrdinalIgnoreCase))
-                {
-                    return Prefer(files, candidate);
-                }
+                return byIdent;
             }
         }
 
-        return null;
+        return FindBlockInfoByPrefix(blockName);
     }
 
     public string? FindFlatBlockInfo(string blockName)
@@ -185,6 +187,15 @@ public sealed class GameAssetStore
                 {
                     return found;
                 }
+            }
+        }
+
+        EnsureBlockInfoIndex();
+        foreach (var candidate in BlockNameCandidates(blockName))
+        {
+            if (_flatInfoByIdent!.TryGetValue(candidate, out var byIdent))
+            {
+                return byIdent;
             }
         }
 
@@ -207,6 +218,11 @@ public sealed class GameAssetStore
             foreach (var stem in presentFlatStems.Distinct(StringComparer.OrdinalIgnoreCase)
                          .OrderByDescending(name => CoverScore(name)))
             {
+                if (CoverScore(stem) <= 0)
+                {
+                    continue;
+                }
+
                 var found = FindFlatBlockInfo(stem);
                 if (found is not null)
                 {
@@ -218,7 +234,7 @@ public sealed class GameAssetStore
         var pak = environment.PakName();
         var display = environment.ToString();
         string? best = null;
-        var bestScore = 0;
+        var bestScore = int.MinValue;
         foreach (var (name, files) in _byFileName)
         {
             if (!IsFlatBlockInfo(name))
@@ -226,21 +242,23 @@ public sealed class GameAssetStore
                 continue;
             }
 
+            var path = files[0];
             var score = CoverScore(name);
             if (name.Contains(pak, StringComparison.OrdinalIgnoreCase)
-                || name.Contains(display, StringComparison.OrdinalIgnoreCase))
+                || name.Contains(display, StringComparison.OrdinalIgnoreCase)
+                || path.Contains($"\\{pak}\\", StringComparison.OrdinalIgnoreCase))
             {
-                score += 4;
+                score += 8;
             }
 
             if (score > bestScore)
             {
                 bestScore = score;
-                best = files[0];
+                best = path;
             }
         }
 
-        return best;
+        return bestScore > 0 ? best : null;
     }
 
     public static bool IsFlatBlockInfo(string? path)
@@ -293,7 +311,46 @@ public sealed class GameAssetStore
         var pak = environment.PakName();
         var display = environment.ToString();
         yield return $"{pak}Grass";
+        yield return $"{pak}Base";
         yield return $"{display}Grass";
+        yield return $"{display}Base";
+        switch (environment)
+        {
+            case TmfEnvironment.Stadium:
+                yield return "StadiumGrass";
+                break;
+            case TmfEnvironment.Island:
+                yield return "Grass";
+                yield return "IslandGrass";
+                break;
+            case TmfEnvironment.Desert:
+                yield return "SpeedBase";
+                yield return "Desert";
+                yield return "Desert2";
+                yield return "Desert3";
+                break;
+            case TmfEnvironment.Rally:
+                yield return "RallyFlat";
+                yield return "RallyRockyGrass";
+                yield return "ForestGround";
+                break;
+            case TmfEnvironment.Bay:
+                yield return "BayHarbor";
+                yield return "BaySea";
+                break;
+            case TmfEnvironment.Coast:
+                yield return "CoastDirt";
+                yield return "CoastHarbor";
+                break;
+            case TmfEnvironment.Alpine:
+                yield return "Snow";
+                yield return "AlpineSnow";
+                yield return "Tundra";
+                yield return "AlpineTundra";
+                yield return "Ice";
+                break;
+        }
+
         yield return $"{pak}Dirt";
         yield return $"{display}Dirt";
         yield return $"{pak}Sand";
@@ -302,23 +359,40 @@ public sealed class GameAssetStore
         yield return $"{display}Snow";
         yield return $"{pak}Ice";
         yield return $"{display}Ice";
+        yield return "Grass";
+        yield return "Desert";
+        yield return "Snow";
     }
 
     private static int CoverScore(string name)
     {
-        if (name.Contains("Grass", StringComparison.OrdinalIgnoreCase))
+        if (name.Contains("River", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Sea", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Water", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Lake", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Pool", StringComparison.OrdinalIgnoreCase))
+        {
+            return -10;
+        }
+
+        if (name.Contains("Grass", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Base", StringComparison.OrdinalIgnoreCase))
         {
             return 10;
         }
 
         if (name.Contains("Dirt", StringComparison.OrdinalIgnoreCase)
             || name.Contains("Sand", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Snow", StringComparison.OrdinalIgnoreCase))
+            || name.Contains("Snow", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Tundra", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Desert", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Harbor", StringComparison.OrdinalIgnoreCase))
         {
             return 6;
         }
 
-        if (name.Contains("Ice", StringComparison.OrdinalIgnoreCase))
+        if (name.Contains("Ice", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Rock", StringComparison.OrdinalIgnoreCase))
         {
             return 4;
         }
@@ -341,6 +415,151 @@ public sealed class GameAssetStore
             yield return blockName.Replace("StartFinish", "Start", StringComparison.OrdinalIgnoreCase);
             yield return blockName.Replace("StartFinishLine", "Finish", StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    private void EnsureBlockInfoIndex()
+    {
+        if (_blockInfoByIdent is not null)
+        {
+            return;
+        }
+
+        GbxBootstrap.EnsureInitialized();
+        var blocks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var flats = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (name, files) in _byFileName)
+        {
+            if (!IsBlockInfoFile(name))
+            {
+                continue;
+            }
+
+            var path = Prefer(files, name);
+            try
+            {
+                if (Gbx.ParseHeader(path).Node is not CGameCtnCollector collector)
+                {
+                    continue;
+                }
+
+                var id = collector.Ident.Id;
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    continue;
+                }
+
+                RegisterIdent(blocks, id, path);
+                if (IsFlatBlockInfo(name))
+                {
+                    RegisterIdent(flats, id, path);
+                }
+            }
+            catch
+            {
+                // Header parse is best-effort; filename lookup still covers many blocks.
+            }
+        }
+
+        _blockInfoByIdent = blocks;
+        _flatInfoByIdent = flats;
+    }
+
+    private string? FindBlockInfoByPrefix(string blockName)
+    {
+        if (_blockInfoByIdent is null || blockName.Length < 8)
+        {
+            return null;
+        }
+
+        string? bestId = null;
+        foreach (var id in _blockInfoByIdent.Keys)
+        {
+            if (id.Length < 8 || id.Length >= blockName.Length)
+            {
+                continue;
+            }
+
+            if (!blockName.StartsWith(id, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (bestId is null || id.Length > bestId.Length)
+            {
+                bestId = id;
+            }
+        }
+
+        return bestId is null ? null : _blockInfoByIdent[bestId];
+    }
+
+    private static void RegisterIdent(Dictionary<string, string> map, string id, string path)
+    {
+        if (!map.TryGetValue(id, out var existing) || BlockInfoRank(path) < BlockInfoRank(existing))
+        {
+            map[id] = path;
+        }
+    }
+
+    private static int BlockInfoRank(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Contains(".TMEDFlat.", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".EDFlat.", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (name.Contains(".TMEDClassic.", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".EDClassic.", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (name.Contains(".TMEDRoad.", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".EDRoad.", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        if (name.Contains(".TMED", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".ED", StringComparison.OrdinalIgnoreCase))
+        {
+            return 3;
+        }
+
+        if (name.Contains(".TMZone", StringComparison.OrdinalIgnoreCase)
+            || name.Contains(".Zone", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
+        return 5;
+    }
+
+    private static bool IsBlockInfoFile(string name)
+    {
+        if (!name.EndsWith(".Gbx", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return name.Contains(".TMED", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".TMZone", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDClassic.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDRoad.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDClip.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDFrontier.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDPylon.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDRectAsym.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDSlope.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDTransition.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDHorizontalClip.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDVerticalClip.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".ZoneFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".ZoneFrontier.", StringComparison.OrdinalIgnoreCase);
     }
 
     public string? FindDecoration(string decorationId, TmfEnvironment? environment = null, Int3? size = null)
@@ -453,10 +672,7 @@ public sealed class GameAssetStore
         GbxBootstrap.EnsureInitialized();
         try
         {
-            var settings = path.Contains("Scene3d", StringComparison.OrdinalIgnoreCase)
-                ? new GbxReadSettings { IgnoreExceptionsInBody = true }
-                : default;
-            return Gbx.ParseNode(path, settings);
+            return Gbx.ParseNode(path, new GbxReadSettings { IgnoreExceptionsInBody = true });
         }
         catch
         {
@@ -476,21 +692,24 @@ public sealed class GameAssetStore
             return null;
         }
 
+        var found = Find(file.FilePath);
+        if (found is not null)
+        {
+            var parsed = ParseNode<T>(found);
+            if (parsed is not null)
+            {
+                return parsed;
+            }
+        }
+
         try
         {
-            var loaded = file.GetNode<T>(ref existing);
-            if (loaded is not null)
-            {
-                return loaded;
-            }
+            return file.GetNode<T>(ref existing);
         }
         catch
         {
-            // Fall through to the overlay search.
+            return null;
         }
-
-        var found = Find(file.FilePath);
-        return found is null ? null : ParseNode<T>(found);
     }
 
     public T? Resolve<T>(External<T>? external) where T : CMwNod

@@ -72,23 +72,31 @@ public sealed class BlockMeshResolver
 
         var units = PickUnits(info, isGround).ToList();
         var hasUnderground = units.Any(IsUnderground);
-        var mobils = PickMobils(info, isGround, variant).ToList();
         var solids = new List<CompiledMesh>();
-        var index = 0;
-        foreach (var mobil in mobils)
+        foreach (var row in PickMobilRows(info, isGround, variant))
         {
-            var baked = BakeMobil(mobil, $"{key}#{index++}");
-            if (baked is null || baked.IsEmpty)
+            solids.Clear();
+            var index = 0;
+            foreach (var mobil in row)
             {
-                continue;
+                var baked = BakeMobil(mobil, $"{key}#{index++}");
+                if (baked is null || baked.IsEmpty)
+                {
+                    continue;
+                }
+
+                if (hasUnderground && IsUntexturedHelper(baked))
+                {
+                    continue;
+                }
+
+                solids.Add(baked);
             }
 
-            if (hasUnderground && IsUntexturedHelper(baked))
+            if (solids.Count > 0)
             {
-                continue;
+                break;
             }
-
-            solids.Add(baked);
         }
 
         var combined = MeshBaker.Combine(key, solids, recenter: false);
@@ -110,12 +118,31 @@ public sealed class BlockMeshResolver
         return combined;
     }
 
-    private IEnumerable<CSceneMobil> PickMobils(CGameCtnBlockInfo info, bool isGround, byte variant)
+    private IEnumerable<List<CSceneMobil>> PickMobilRows(CGameCtnBlockInfo info, bool isGround, byte variant)
     {
         var primary = isGround ? info.GroundMobils : info.AirMobils;
         var secondary = isGround ? info.AirMobils : info.GroundMobils;
-        var fromPrimary = ResolveRow(primary, variant).ToList();
-        return fromPrimary.Count > 0 ? fromPrimary : ResolveRow(secondary, variant);
+        foreach (var row in MobilRows(primary, variant).Concat(MobilRows(secondary, variant)))
+        {
+            if (row.Count > 0)
+            {
+                yield return row;
+            }
+        }
+    }
+
+    private IEnumerable<List<CSceneMobil>> MobilRows(External<CSceneMobil>[][]? sets, byte variant)
+    {
+        if (sets is null || sets.Length == 0)
+        {
+            yield break;
+        }
+
+        yield return ResolveExternals(sets[Math.Clamp((int)variant, 0, sets.Length - 1)]).ToList();
+        foreach (var row in sets)
+        {
+            yield return ResolveExternals(row).ToList();
+        }
     }
 
     private static IEnumerable<CGameCtnBlockUnitInfo> PickUnits(CGameCtnBlockInfo info, bool isGround)
@@ -130,15 +157,9 @@ public sealed class BlockMeshResolver
         return secondary?.Where(unit => unit is not null) ?? [];
     }
 
-    private IEnumerable<CSceneMobil> ResolveRow(External<CSceneMobil>[][]? sets, byte variant)
+    private IEnumerable<CSceneMobil> ResolveExternals(External<CSceneMobil>[]? row)
     {
-        if (sets is null || sets.Length == 0)
-        {
-            yield break;
-        }
-
-        var index = Math.Clamp((int)variant, 0, sets.Length - 1);
-        foreach (var external in sets[index] ?? [])
+        foreach (var external in row ?? [])
         {
             var mobil = _store.Resolve(external);
             if (mobil is not null)
@@ -150,13 +171,16 @@ public sealed class BlockMeshResolver
 
     private CompiledMesh? BakeMobil(CSceneMobil mobil, string key)
     {
-        var item = mobil.Item;
-        if (item?.Solid is not CPlugSolid solid)
+        if (mobil.Item?.Solid is CPlugSolid solid)
         {
-            return null;
+            var baked = MeshBaker.BakeSolid(solid, key, _store);
+            if (!baked.IsEmpty)
+            {
+                return baked;
+            }
         }
 
-        return MeshBaker.BakeSolid(solid, key, _store);
+        return MeshBaker.BakeAny(_store, mobil, key);
     }
 
     private static Int3 FootprintCells(IReadOnlyList<Int3> offsets)

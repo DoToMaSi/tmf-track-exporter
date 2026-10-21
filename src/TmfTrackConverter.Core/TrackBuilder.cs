@@ -368,22 +368,45 @@ public sealed class TrackBuilder
     private T? ReadNode<T>(CMwNod owner, string property) where T : CMwNod
     {
         var type = owner.GetType();
-        var nodeProp = type.GetProperty(property);
-        if (nodeProp?.GetValue(owner) is T node)
+        try
         {
-            return node;
-        }
+            var nodeProp = type.GetProperty(property);
+            if (nodeProp?.GetValue(owner) is T node)
+            {
+                return node;
+            }
 
-        var fileProp = type.GetProperty(property + "File");
-        if (fileProp?.GetValue(owner) is GBX.NET.Components.GbxRefTableFile file)
-        {
-            return _store.Resolve<T>(file);
-        }
+            var fileProp = type.GetProperty(property + "File");
+            if (fileProp?.GetValue(owner) is GBX.NET.Components.GbxRefTableFile file)
+            {
+                return _store.Resolve<T>(file);
+            }
 
-        var getter = type.GetMethod("Get" + property);
-        if (getter?.Invoke(owner, null) is T loaded)
+            foreach (var getter in type.GetMethods())
+            {
+                if (!string.Equals(getter.Name, "Get" + property, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var parameters = getter.GetParameters();
+                if (parameters.Any(p => !p.HasDefaultValue && !p.IsOptional))
+                {
+                    continue;
+                }
+
+                var args = parameters
+                    .Select(p => p.DefaultValue is DBNull ? null : p.DefaultValue)
+                    .ToArray();
+                if (getter.Invoke(owner, args) is T loaded)
+                {
+                    return loaded;
+                }
+            }
+        }
+        catch
         {
-            return loaded;
+            return null;
         }
 
         return null;

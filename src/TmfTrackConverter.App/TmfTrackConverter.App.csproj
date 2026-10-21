@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon />
+    <RootNamespace>TmfTrackConverter.App</RootNamespace>
+    <AssemblyName>TmfTrackConverter</AssemblyName>
+    <Product>TMF Track Converter</Product>
+    <Description>Convert TrackMania Forever tracks to FBX</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TmfTrackConverter.Core\TmfTrackConverter.Core.csproj" />
+    <ProjectReference Include="..\TmfTrackConverter.Export\TmfTrackConverter.Export.csproj" />
+  </ItemGroup>
+
+</Project>

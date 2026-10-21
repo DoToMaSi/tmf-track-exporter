@@ -1,0 +1,23 @@
+<Window x:Class="TmfTrackConverter.App.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Exporting FBX"
+        Height="280" Width="540"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <Border Background="{StaticResource BgBrush}" Padding="18">
+        <DockPanel>
+            <Button DockPanel.Dock="Bottom" Content="Cancel" HorizontalAlignment="Right" Click="OnCancel" Margin="0,12,0,0" />
+            <StackPanel>
+                <TextBlock Text="Exporting the track to FBX. The app stays responsive while this runs." TextWrapping="Wrap" Margin="0,0,0,8" />
+                <CheckBox x:Name="IncludeEnvironmentBox" Content="Include environment" IsEnabled="False" Margin="0,0,0,12" />
+                <TextBlock x:Name="StatusLabel" Text="Starting…" Margin="0,0,0,8" />
+                <ProgressBar x:Name="Bar" Minimum="0" Maximum="1" />
+                <TextBlock x:Name="FileLabel" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

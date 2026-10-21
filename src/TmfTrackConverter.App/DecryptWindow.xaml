@@ -1,0 +1,21 @@
+<Window x:Class="TmfTrackConverter.App.DecryptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Decrypting game data"
+        Height="240" Width="540"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Border Background="{StaticResource BgBrush}" Padding="18">
+    <DockPanel>
+        <Button DockPanel.Dock="Bottom" Content="Cancel" HorizontalAlignment="Right" Click="OnCancel" Margin="0,12,0,0" />
+        <StackPanel>
+            <TextBlock Text="Decrypting NadeoPak archives into the local cache. This runs once per install." TextWrapping="Wrap" Margin="0,0,0,12" />
+            <TextBlock x:Name="StatusLabel" Text="Starting…" Margin="0,0,0,8" />
+            <ProgressBar x:Name="Bar" Minimum="0" Maximum="1" />
+            <TextBlock x:Name="FileLabel" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+        </StackPanel>
+    </DockPanel>
+    </Border>
+</Window>

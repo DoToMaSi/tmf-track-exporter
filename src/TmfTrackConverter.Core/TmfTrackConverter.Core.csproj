@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>TmfTrackConverter.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Pfim" Version="0.11.3" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\gbx-net\Src\GBX.NET\GBX.NET.csproj" />
+    <ProjectReference Include="..\..\..\gbx-net\Src\GBX.NET.Crypto\GBX.NET.Crypto.csproj" />
+    <ProjectReference Include="..\..\..\gbx-net\Src\GBX.NET.LZO\GBX.NET.LZO.csproj" />
+    <ProjectReference Include="..\..\..\gbx-net\Src\GBX.NET.PAK\GBX.NET.PAK.csproj" />
+  </ItemGroup>
+
+</Project>

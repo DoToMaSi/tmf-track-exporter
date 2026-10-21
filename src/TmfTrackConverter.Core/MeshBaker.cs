@@ -8,14 +8,20 @@ public static class MeshBaker
 {
     public static CompiledMesh? BakeAny(GameAssetStore store, CMwNod? node, string key)
     {
-        var solids = new List<CompiledMesh>();
-        CollectSolids(store, node, key, solids, []);
+        var solids = BakeEach(store, node, key);
         return solids.Count switch
         {
             0 => null,
             1 => solids[0],
             _ => Combine(key, solids)
         };
+    }
+
+    public static List<CompiledMesh> BakeEach(GameAssetStore store, CMwNod? node, string key)
+    {
+        var solids = new List<CompiledMesh>();
+        CollectSolids(store, node, key, solids, []);
+        return solids;
     }
 
     private static void CollectSolids(
@@ -152,7 +158,7 @@ public static class MeshBaker
         return mesh;
     }
 
-    public static CompiledMesh Combine(string key, IEnumerable<CompiledMesh> meshes)
+    public static CompiledMesh Combine(string key, IEnumerable<CompiledMesh> meshes, bool recenter = true)
     {
         var combined = new CompiledMesh { Key = key };
         var parts = new Dictionary<string, MeshPart>(StringComparer.OrdinalIgnoreCase);
@@ -179,8 +185,55 @@ public static class MeshBaker
             }
         }
 
-        Recenter(combined);
+        if (recenter)
+        {
+            Recenter(combined);
+        }
+
         return combined;
+    }
+
+    public static bool HasTinyUvs(CompiledMesh mesh, float minSpan = 0.2f)
+    {
+        if (mesh.IsEmpty)
+        {
+            return false;
+        }
+
+        var minU = float.MaxValue;
+        var minV = float.MaxValue;
+        var maxU = float.MinValue;
+        var maxV = float.MinValue;
+        var any = false;
+        foreach (var part in mesh.Parts)
+        {
+            foreach (var vertex in part.Vertices)
+            {
+                any = true;
+                minU = Math.Min(minU, vertex.Uv.X);
+                minV = Math.Min(minV, vertex.Uv.Y);
+                maxU = Math.Max(maxU, vertex.Uv.X);
+                maxV = Math.Max(maxV, vertex.Uv.Y);
+            }
+        }
+
+        return !any || (maxU - minU < minSpan && maxV - minV < minSpan);
+    }
+
+    public static void ApplyPlanarXzUvs(CompiledMesh mesh, float tileX, float tileZ)
+    {
+        tileX = Math.Max(1f, tileX);
+        tileZ = Math.Max(1f, tileZ);
+        foreach (var part in mesh.Parts)
+        {
+            for (var i = 0; i < part.Vertices.Count; i++)
+            {
+                var vertex = part.Vertices[i];
+                var world = vertex.Position + mesh.LocalOrigin;
+                vertex.Uv = new Vec2(world.X / tileX, world.Z / tileZ);
+                part.Vertices[i] = vertex;
+            }
+        }
     }
 
     public static void Recenter(CompiledMesh mesh)
@@ -321,21 +374,58 @@ public static class MeshBaker
 
     private static Vec2[] GetUvs(CPlugVisualIndexedTriangles visual)
     {
-        if (visual.TexCoords.Length > 0)
-        {
-            return visual.TexCoords[0].TexCoords.Select(t => t.UV).ToArray();
-        }
+        Vec2[]? fallback = null;
 
-        if (visual.VertexStreams.Count > 0)
+        foreach (var set in visual.TexCoords)
         {
-            var first = visual.VertexStreams[0].UVs.Values.FirstOrDefault();
-            if (first is { Length: > 0 })
+            var uvs = set.TexCoords.Select(t => t.UV).ToArray();
+            if (uvs.Length == 0)
             {
-                return first;
+                continue;
+            }
+
+            fallback ??= uvs;
+            if (UvSpanLooksUsable(uvs))
+            {
+                return uvs;
             }
         }
 
-        return [];
+        foreach (var stream in visual.VertexStreams)
+        {
+            foreach (var uvs in stream.UVs.Values)
+            {
+                if (uvs is not { Length: > 0 })
+                {
+                    continue;
+                }
+
+                fallback ??= uvs;
+                if (UvSpanLooksUsable(uvs))
+                {
+                    return uvs;
+                }
+            }
+        }
+
+        return fallback ?? [];
+    }
+
+    private static bool UvSpanLooksUsable(Vec2[] uvs, float minSpan = 0.2f)
+    {
+        var minU = float.MaxValue;
+        var minV = float.MaxValue;
+        var maxU = float.MinValue;
+        var maxV = float.MinValue;
+        foreach (var uv in uvs)
+        {
+            minU = Math.Min(minU, uv.X);
+            minV = Math.Min(minV, uv.Y);
+            maxU = Math.Max(maxU, uv.X);
+            maxV = Math.Max(maxV, uv.Y);
+        }
+
+        return maxU - minU >= minSpan || maxV - minV >= minSpan;
     }
 
     private static Vec3 TransformPoint(Vec3 pos, Iso4 loc)

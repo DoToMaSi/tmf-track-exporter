@@ -61,8 +61,8 @@ public static class ObjTrackExporter
             {
                 foreach (var vertex in part.Vertices)
                 {
-                    var p = RotateY(vertex.Position, cos, sin) + instance.Position;
-                    var n = RotateY(vertex.Normal, cos, sin);
+                    var p = BlockPlacement.RotateY(vertex.Position, cos, sin) + instance.Position;
+                    var n = BlockPlacement.RotateY(vertex.Normal, cos, sin);
                     obj.WriteLine($"v {p.X.ToString(inv)} {p.Y.ToString(inv)} {p.Z.ToString(inv)}");
                     obj.WriteLine($"vn {n.X.ToString(inv)} {n.Y.ToString(inv)} {n.Z.ToString(inv)}");
                     obj.WriteLine($"vt {vertex.Uv.X.ToString(inv)} {vertex.Uv.Y.ToString(inv)}");
@@ -95,11 +95,6 @@ public static class ObjTrackExporter
 
             vertexOffset += mesh.Parts.Sum(p => p.Vertices.Count);
         }
-    }
-
-    private static GBX.NET.Vec3 RotateY(GBX.NET.Vec3 v, float cos, float sin)
-    {
-        return new GBX.NET.Vec3(v.X * cos + v.Z * sin, v.Y, -v.X * sin + v.Z * cos);
     }
 
     private static string Sanitize(string name)

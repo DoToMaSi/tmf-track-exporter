@@ -32,6 +32,12 @@ public sealed class CompiledMesh
 
     public Vec3 LocalOrigin { get; set; }
 
+    public Int3 FootprintCells { get; set; } = new(1, 1, 1);
+
+    public List<Int3> UnitOffsets { get; set; } = [];
+
+    public bool IsFlat { get; set; }
+
     public bool IsEmpty => Parts.Count == 0 || Parts.All(p => p.Indices.Count == 0);
 }
 
@@ -52,6 +58,8 @@ public sealed class TrackInstance
     public Direction Direction { get; init; }
 
     public bool IsGround { get; init; }
+
+    public IReadOnlyList<Int3> OccupiedCells { get; init; } = [];
 }
 
 public sealed class TrackScene

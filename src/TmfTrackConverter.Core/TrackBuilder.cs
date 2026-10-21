@@ -24,6 +24,8 @@ public sealed class TrackBuilder
         var blocks = map.Challenge.GetBlocks().ToList();
         var unique = blocks.Select(b => b.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         var processed = 0;
+        var pending = new List<(CGameCtnBlock Block, CompiledMesh Mesh)>();
+        var presentFlats = new List<string>();
 
         foreach (var block in blocks)
         {
@@ -38,26 +40,45 @@ public sealed class TrackBuilder
                 continue;
             }
 
-            var mesh = resolver.Resolve(block);
+            var mesh = resolver.Resolve(block, map.BlockSize);
             if (mesh is null)
             {
                 continue;
             }
 
-            scene.Meshes.TryAdd(mesh.Key, mesh);
-
-            scene.Instances.Add(new TrackInstance
+            pending.Add((block, mesh));
+            if (mesh.IsFlat)
             {
-                Name = $"{block.Name}_{block.Coord.X}_{block.Coord.Y}_{block.Coord.Z}_{block.Direction}",
-                MeshKey = mesh.Key,
-                Position = BlockPlacement.InstancePosition(
-                    block.Coord, map.BlockSize, block.Direction, mesh.LocalOrigin),
-                YawDegrees = (int)block.Direction * 90f,
-                BlockName = block.Name,
-                Coord = block.Coord,
-                Direction = block.Direction,
-                IsGround = block.IsGround
-            });
+                presentFlats.Add(block.Name);
+            }
+        }
+
+        var construction = new HashSet<(int X, int Z)>();
+        foreach (var (block, mesh) in pending)
+        {
+            if (mesh.IsFlat)
+            {
+                continue;
+            }
+
+            foreach (var cell in BlockPlacement.OccupiedCells(block.Coord, block.Direction, mesh.UnitOffsets))
+            {
+                construction.Add((cell.X, cell.Z));
+            }
+        }
+
+        foreach (var (block, mesh) in pending)
+        {
+            if (mesh.IsFlat)
+            {
+                var occupied = BlockPlacement.OccupiedCells(block.Coord, block.Direction, mesh.UnitOffsets);
+                if (occupied.Any(cell => construction.Contains((cell.X, cell.Z))))
+                {
+                    continue;
+                }
+            }
+
+            AddBlockInstance(scene, map, block, mesh);
         }
 
         foreach (var missing in resolver.MissingBlocks.OrderBy(x => x))
@@ -65,8 +86,11 @@ public sealed class TrackBuilder
             scene.Warnings.Add($"Missing block mesh: {missing}");
         }
 
-        progress?.Report(new TrackBuildProgress("Loading environment decoration…", blocks.Count, blocks.Count + 1));
+        progress?.Report(new TrackBuildProgress("Loading environment decoration…", blocks.Count, blocks.Count + 2));
         TryAddDecoration(map, scene);
+
+        progress?.Report(new TrackBuildProgress("Filling default cover…", blocks.Count + 1, blocks.Count + 2));
+        TryAddDefaultCover(map, scene, resolver, presentFlats);
 
         progress?.Report(new TrackBuildProgress(
             $"Ready — {scene.Instances.Count} instances, {scene.Meshes.Count} unique meshes, {unique} block types.",
@@ -74,6 +98,95 @@ public sealed class TrackBuilder
             blocks.Count));
 
         return scene;
+    }
+
+    private static void AddBlockInstance(TrackScene scene, LoadedMap map, CGameCtnBlock block, CompiledMesh mesh)
+    {
+        scene.Meshes.TryAdd(mesh.Key, mesh);
+        var occupied = BlockPlacement.OccupiedCells(block.Coord, block.Direction, mesh.UnitOffsets);
+        scene.Instances.Add(new TrackInstance
+        {
+            Name = $"{block.Name}_{block.Coord.X}_{block.Coord.Y}_{block.Coord.Z}_{block.Direction}",
+            MeshKey = mesh.Key,
+            Position = BlockPlacement.InstancePosition(
+                block.Coord, map.BlockSize, block.Direction, mesh.LocalOrigin),
+            YawDegrees = BlockPlacement.YawDegrees(block.Direction),
+            BlockName = block.Name,
+            Coord = block.Coord,
+            Direction = block.Direction,
+            IsGround = block.IsGround,
+            OccupiedCells = occupied
+        });
+    }
+
+    private void TryAddDefaultCover(
+        LoadedMap map,
+        TrackScene scene,
+        BlockMeshResolver resolver,
+        IReadOnlyList<string> presentFlats)
+    {
+        var coverPath = _store.FindDefaultCoverFlat(map.Environment, presentFlats);
+        if (coverPath is null)
+        {
+            scene.Warnings.Add("Default base cover Flat was not found for this environment.");
+            return;
+        }
+
+        var mesh = resolver.ResolveFlat(coverPath, map.BlockSize);
+        if (mesh is null)
+        {
+            scene.Warnings.Add($"Default base cover '{GameAssetStore.FlatStem(coverPath)}' could not be baked.");
+            return;
+        }
+
+        scene.Meshes.TryAdd(mesh.Key, mesh);
+        var occupied = new HashSet<(int X, int Z)>();
+        foreach (var instance in scene.Instances)
+        {
+            if (string.Equals(instance.BlockName, "Environment", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var cell in instance.OccupiedCells)
+            {
+                occupied.Add((cell.X, cell.Z));
+            }
+        }
+
+        var stem = GameAssetStore.FlatStem(coverPath);
+        var added = 0;
+        for (var x = 0; x < map.Size.X; x++)
+        {
+            for (var z = 0; z < map.Size.Z; z++)
+            {
+                if (!occupied.Add((x, z)))
+                {
+                    continue;
+                }
+
+                var coord = new Int3(x, 0, z);
+                scene.Instances.Add(new TrackInstance
+                {
+                    Name = $"{stem}_{x}_0_{z}_{Direction.North}",
+                    MeshKey = mesh.Key,
+                    Position = BlockPlacement.InstancePosition(
+                        coord, map.BlockSize, Direction.North, mesh.LocalOrigin),
+                    YawDegrees = 0,
+                    BlockName = stem,
+                    Coord = coord,
+                    Direction = Direction.North,
+                    IsGround = true,
+                    OccupiedCells = [coord]
+                });
+                added++;
+            }
+        }
+
+        if (added > 0)
+        {
+            scene.Warnings.Add($"Filled {added} empty cells with {stem}.");
+        }
     }
 
     private void TryAddDecoration(LoadedMap map, TrackScene scene)
@@ -123,19 +236,18 @@ public sealed class TrackBuilder
             var solids = new List<CompiledMesh>();
             if (layout is not null)
             {
-                var bakedLayout = MeshBaker.BakeAny(_store, layout, "deco#layout");
-                if (bakedLayout is not null && !bakedLayout.IsEmpty)
+                foreach (var baked in MeshBaker.BakeEach(_store, layout, "deco#layout"))
                 {
-                    solids.Add(bakedLayout);
+                    if (!baked.IsEmpty)
+                    {
+                        solids.Add(baked);
+                    }
                 }
             }
 
-            if (solids.Count == 0)
+            foreach (var baked in BakeSceneRefs(decoration, sceneGbx, "deco#ref"))
             {
-                foreach (var baked in BakeSceneRefs(decoration, sceneGbx, "deco#ref"))
-                {
-                    solids.Add(baked);
-                }
+                solids.Add(baked);
             }
 
             var warp = ReadWarp(decoration);
@@ -219,7 +331,7 @@ public sealed class TrackBuilder
             }
 
             var node = _store.ParseNode(path);
-            var baked = MeshBaker.BakeAny(_store, node, $"{key}#{i++}");
+            var baked = MeshBaker.BakeAny(_store, node, $"{key}#{Path.GetFileName(refFile.FilePath)}#{i++}");
             if (baked is not null && !baked.IsEmpty)
             {
                 yield return baked;

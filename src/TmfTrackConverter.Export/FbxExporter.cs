@@ -60,15 +60,11 @@ public static class FbxExporter
 
             var rootId = NextId();
             var geometryIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var geometryYaw = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
             var materialIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var textureIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var videoIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            var modelIds = new List<(long Id, string Name, string MeshKey)>();
-
-            foreach (var key in scene.Meshes.Keys)
-            {
-                geometryIds[key] = NextId();
-            }
+            var modelIds = new List<(long Id, string Name, string MeshKey, string GeometryKey)>();
 
             foreach (var mesh in scene.Meshes.Values)
             {
@@ -90,7 +86,14 @@ public static class FbxExporter
 
             foreach (var instance in scene.Instances)
             {
-                modelIds.Add((NextId(), instance.Name, instance.MeshKey));
+                var geometryKey = GeometryKey(instance.MeshKey, instance.YawDegrees);
+                if (!geometryIds.ContainsKey(geometryKey))
+                {
+                    geometryIds[geometryKey] = NextId();
+                    geometryYaw[geometryKey] = instance.YawDegrees;
+                }
+
+                modelIds.Add((NextId(), instance.Name, instance.MeshKey, geometryKey));
             }
 
             _w.WriteLine("Documents:  {");
@@ -106,7 +109,7 @@ public static class FbxExporter
             _w.WriteLine();
             _w.WriteLine("Definitions:  {");
             _w.WriteLine("\tVersion: 100");
-            _w.WriteLine($"\tCount: {4 + scene.Meshes.Count}");
+            _w.WriteLine($"\tCount: {4 + geometryIds.Count}");
             _w.WriteLine("\tObjectType: \"Model\" { Count: " + modelIds.Count + " }");
             _w.WriteLine("\tObjectType: \"Geometry\" { Count: " + geometryIds.Count + " }");
             _w.WriteLine("\tObjectType: \"Material\" { Count: " + materialIds.Count + " }");
@@ -116,11 +119,17 @@ public static class FbxExporter
             _w.WriteLine("Objects:  {");
 
             var meshIndex = 0;
-            foreach (var mesh in scene.Meshes.Values)
+            foreach (var (geometryKey, geometryId) in geometryIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                progress?.Invoke(meshIndex, mesh.Key);
-                WriteGeometry(geometryIds[mesh.Key], mesh);
+                var meshKey = MeshKeyFromGeometryKey(geometryKey);
+                if (!scene.Meshes.TryGetValue(meshKey, out var mesh))
+                {
+                    continue;
+                }
+
+                progress?.Invoke(meshIndex, geometryKey);
+                WriteGeometry(geometryId, geometryKey, mesh, geometryYaw[geometryKey]);
                 meshIndex++;
             }
 
@@ -144,10 +153,10 @@ public static class FbxExporter
             _w.WriteLine("}");
             _w.WriteLine();
             _w.WriteLine("Connections:  {");
-            foreach (var (id, _, meshKey) in modelIds)
+            foreach (var (id, _, meshKey, geometryKey) in modelIds)
             {
                 _w.WriteLine($"\tC: \"OO\",{id},{rootId}");
-                if (geometryIds.TryGetValue(meshKey, out var geo))
+                if (geometryIds.TryGetValue(geometryKey, out var geo))
                 {
                     _w.WriteLine($"\tC: \"OO\",{geo},{id}");
                 }
@@ -180,7 +189,19 @@ public static class FbxExporter
             _w.WriteLine("}");
         }
 
-        private void WriteGeometry(long id, CompiledMesh mesh)
+        private static string GeometryKey(string meshKey, float yawDegrees)
+        {
+            var yaw = (int)MathF.Round(yawDegrees);
+            return yaw == 0 ? meshKey : $"{meshKey}@{yaw}";
+        }
+
+        private static string MeshKeyFromGeometryKey(string geometryKey)
+        {
+            var at = geometryKey.LastIndexOf('@');
+            return at < 0 ? geometryKey : geometryKey[..at];
+        }
+
+        private void WriteGeometry(long id, string geometryKey, CompiledMesh mesh, float yawDegrees)
         {
             var vertices = new List<string>();
             var normals = new List<string>();
@@ -188,6 +209,10 @@ public static class FbxExporter
             var indices = new List<string>();
             var materials = new List<int>();
             var materialNames = mesh.Parts.Select(p => p.MaterialName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var radians = yawDegrees * MathF.PI / 180f;
+            var cos = MathF.Cos(radians);
+            var sin = MathF.Sin(radians);
+            var rotate = MathF.Abs(yawDegrees) > 0.01f;
 
             var offset = 0;
             foreach (var part in mesh.Parts)
@@ -195,8 +220,10 @@ public static class FbxExporter
                 var matIndex = materialNames.FindIndex(n => string.Equals(n, part.MaterialName, StringComparison.OrdinalIgnoreCase));
                 foreach (var v in part.Vertices)
                 {
-                    vertices.Add($"{F(v.Position.X)},{F(v.Position.Y)},{F(v.Position.Z)}");
-                    normals.Add($"{F(v.Normal.X)},{F(v.Normal.Y)},{F(v.Normal.Z)}");
+                    var p = rotate ? BlockPlacement.RotateY(v.Position, cos, sin) : v.Position;
+                    var n = rotate ? BlockPlacement.RotateY(v.Normal, cos, sin) : v.Normal;
+                    vertices.Add($"{F(p.X)},{F(p.Y)},{F(p.Z)}");
+                    normals.Add($"{F(n.X)},{F(n.Y)},{F(n.Z)}");
                     uvs.Add($"{F(v.Uv.X)},{F(v.Uv.Y)}");
                 }
 
@@ -212,7 +239,7 @@ public static class FbxExporter
                 offset += part.Vertices.Count;
             }
 
-            _w.WriteLine($"\tGeometry: {id}, \"Geometry::{Sanitize(mesh.Key)}\", \"Mesh\" {{");
+            _w.WriteLine($"\tGeometry: {id}, \"Geometry::{Sanitize(geometryKey)}\", \"Mesh\" {{");
             _w.WriteLine($"\t\tVertices: *{vertices.Count * 3} {{");
             _w.WriteLine($"\t\t\ta: {string.Join(",", vertices)}");
             _w.WriteLine("\t\t}");
@@ -264,7 +291,7 @@ public static class FbxExporter
             _w.WriteLine("\t\t\tP: \"InheritType\", \"enum\", \"\", \"\",1");
             _w.WriteLine("\t\t\tP: \"DefaultAttributeIndex\", \"int\", \"Integer\", \"\",0");
             _w.WriteLine($"\t\t\tP: \"Lcl Translation\", \"Lcl Translation\", \"\", \"A\",{F(instance.Position.X)},{F(instance.Position.Y)},{F(instance.Position.Z)}");
-            _w.WriteLine($"\t\t\tP: \"Lcl Rotation\", \"Lcl Rotation\", \"\", \"A\",0,{F(instance.YawDegrees)},0");
+            _w.WriteLine("\t\t\tP: \"Lcl Rotation\", \"Lcl Rotation\", \"\", \"A\",0,0,0");
             _w.WriteLine("\t\t}");
             _w.WriteLine("\t\tShading: T");
             _w.WriteLine("\t\tCulling: \"CullingOff\"");

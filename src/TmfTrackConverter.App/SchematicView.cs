@@ -84,12 +84,18 @@ public sealed class SchematicView : Grid
             color.R = (byte)Math.Clamp(color.R + (int)(height * 40), 0, 255);
             color.G = (byte)Math.Clamp(color.G + (int)(height * 20), 0, 255);
 
-            var x = originX + instance.Coord.X * scale;
-            var y = originY + instance.Coord.Z * scale;
-            dc.DrawRectangle(
-                new SolidColorBrush(color),
-                null,
-                new Rect(x, y, Math.Max(1, scale - 0.4), Math.Max(1, scale - 0.4)));
+            var cells = instance.OccupiedCells.Count > 0
+                ? instance.OccupiedCells
+                : [instance.Coord];
+            foreach (var cell in cells)
+            {
+                var x = originX + cell.X * scale;
+                var y = originY + cell.Z * scale;
+                dc.DrawRectangle(
+                    new SolidColorBrush(color),
+                    null,
+                    new Rect(x, y, Math.Max(1, scale - 0.4), Math.Max(1, scale - 0.4)));
+            }
         }
 
         if (_hoverX is int hx && _hoverZ is int hz && hx >= 0 && hz >= 0 && hx < size.X && hz < size.Z)
@@ -188,7 +194,10 @@ public sealed class SchematicView : Grid
                 continue;
             }
 
-            if (instance.Coord.X != cellX || instance.Coord.Z != cellZ)
+            var occupies = instance.OccupiedCells.Count > 0
+                ? instance.OccupiedCells.Any(cell => cell.X == cellX && cell.Z == cellZ)
+                : instance.Coord.X == cellX && instance.Coord.Z == cellZ;
+            if (!occupies)
             {
                 continue;
             }

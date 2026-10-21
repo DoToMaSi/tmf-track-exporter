@@ -139,6 +139,7 @@ public sealed class GameAssetStore
             ".TMEDRoad.Gbx", ".EDRoad.Gbx",
             ".TMEDClip.Gbx", ".EDClip.Gbx",
             ".TMEDFlat.Gbx", ".EDFlat.Gbx",
+            ".TMZoneFlat.Gbx", ".ZoneFlat.Gbx",
             ".TMEDFrontier.Gbx", ".EDFrontier.Gbx",
             ".TMEDPylon.Gbx", ".EDPylon.Gbx",
             ".TMEDRectAsym.Gbx", ".EDRectAsym.Gbx",
@@ -170,6 +171,159 @@ public sealed class GameAssetStore
         }
 
         return null;
+    }
+
+    public string? FindFlatBlockInfo(string blockName)
+    {
+        string[] suffixes = [".TMEDFlat.Gbx", ".EDFlat.Gbx", ".TMZoneFlat.Gbx", ".ZoneFlat.Gbx"];
+        foreach (var candidate in BlockNameCandidates(blockName))
+        {
+            foreach (var suffix in suffixes)
+            {
+                var found = Find(candidate + suffix);
+                if (found is not null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public string? FindDefaultCoverFlat(TmfEnvironment environment, IEnumerable<string>? presentFlatStems = null)
+    {
+        foreach (var stem in DefaultCoverStems(environment))
+        {
+            var found = FindFlatBlockInfo(stem);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        if (presentFlatStems is not null)
+        {
+            foreach (var stem in presentFlatStems.Distinct(StringComparer.OrdinalIgnoreCase)
+                         .OrderByDescending(name => CoverScore(name)))
+            {
+                var found = FindFlatBlockInfo(stem);
+                if (found is not null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        var pak = environment.PakName();
+        var display = environment.ToString();
+        string? best = null;
+        var bestScore = 0;
+        foreach (var (name, files) in _byFileName)
+        {
+            if (!IsFlatBlockInfo(name))
+            {
+                continue;
+            }
+
+            var score = CoverScore(name);
+            if (name.Contains(pak, StringComparison.OrdinalIgnoreCase)
+                || name.Contains(display, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 4;
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = files[0];
+            }
+        }
+
+        return best;
+    }
+
+    public static bool IsFlatBlockInfo(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var name = Path.GetFileName(path);
+        return name.Contains(".TMEDFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".EDFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".TMZoneFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.Contains(".ZoneFlat.", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".TMEDFlat.Gbx", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".EDFlat.Gbx", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".TMZoneFlat.Gbx", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".ZoneFlat.Gbx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string FlatStem(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.EndsWith(".Gbx", StringComparison.OrdinalIgnoreCase))
+        {
+            name = name[..^4];
+        }
+
+        foreach (var suffix in new[] { ".TMEDFlat", ".EDFlat", ".TMZoneFlat", ".ZoneFlat" })
+        {
+            if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[..^suffix.Length];
+            }
+        }
+
+        return GbxPath.GetFileNameWithoutExtension(Path.GetFileName(path))
+               ?? Path.GetFileNameWithoutExtension(path)
+               ?? path;
+    }
+
+    public static bool IsBaseTerrain(string blockName, string? blockInfoPath)
+    {
+        return IsFlatBlockInfo(blockInfoPath)
+               && string.Equals(blockName, FlatStem(blockInfoPath!), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> DefaultCoverStems(TmfEnvironment environment)
+    {
+        var pak = environment.PakName();
+        var display = environment.ToString();
+        yield return $"{pak}Grass";
+        yield return $"{display}Grass";
+        yield return $"{pak}Dirt";
+        yield return $"{display}Dirt";
+        yield return $"{pak}Sand";
+        yield return $"{display}Sand";
+        yield return $"{pak}Snow";
+        yield return $"{display}Snow";
+        yield return $"{pak}Ice";
+        yield return $"{display}Ice";
+    }
+
+    private static int CoverScore(string name)
+    {
+        if (name.Contains("Grass", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
+        if (name.Contains("Dirt", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Sand", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Snow", StringComparison.OrdinalIgnoreCase))
+        {
+            return 6;
+        }
+
+        if (name.Contains("Ice", StringComparison.OrdinalIgnoreCase))
+        {
+            return 4;
+        }
+
+        return 1;
     }
 
     private static IEnumerable<string> BlockNameCandidates(string blockName)
